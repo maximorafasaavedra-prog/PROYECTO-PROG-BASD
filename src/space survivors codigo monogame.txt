@@ -1,0 +1,1172 @@
+﻿using System;
+using System.Collections.Generic;
+using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Audio;
+using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
+using MySql.Data.MySqlClient;
+
+
+namespace Space_Invaders
+{
+    public enum GameState
+    {
+        TitleScreen,
+        Playing,
+        GameOver
+    }
+
+
+    public class WeaponData
+    {
+        public int WeaponId { get; set; }
+        public string Nombre { get; set; }
+        public int Dano { get; set; }
+        public float Cadencia { get; set; }
+        public int MunicionMax { get; set; }
+    }
+
+
+    public class EnemyTypeData
+    {
+        public int EnemyTypeId { get; set; }
+        public string Nombre { get; set; }
+        public int VidaBase { get; set; }
+        public int Dano { get; set; }
+        public float Velocidad { get; set; }
+    }
+
+
+    public class ActiveEnemy
+    {
+        public Vector2 Position { get; set; }
+        public EnemyTypeData Type { get; set; }
+        public int CurrentHealth { get; set; }
+    }
+
+
+    public class ActiveItem
+    {
+        public Vector2 Position { get; set; }
+        public WeaponData Weapon { get; set; }
+    }
+
+
+    public class Game1 : Game
+    {
+        private GraphicsDeviceManager graphics;
+        private SpriteBatch spriteBatch;
+
+
+        private const int ScreenWidth = 800;
+        private const int ScreenHeight = 600;
+
+
+        private GameState currentState = GameState.TitleScreen;
+        private Texture2D titleTexture;
+        private Texture2D gameOverTexture;
+        private Texture2D backgroundTexture;
+        private float bgPositionY1 = 0f;
+        private float bgPositionY2 = -600f;
+        private float bgSpeed = 100f;
+
+
+        private Rectangle playButtonRect = new Rectangle(300, 290, 200, 50);
+        private Rectangle exitButtonRect = new Rectangle(300, 520, 200, 50);
+        private MouseState previousMouseState;
+        private KeyboardState previousKeyboardState;
+
+
+        private Texture2D shipTexture;
+        private Vector2 shipPosition;
+        private float shipSpeed = 350f;
+        private float shipBoostMultiplier = 1.8f;
+        private float shipScale = 1.3f;
+
+
+        private int maxHealth = 3;
+        private int currentHealth;
+        private Texture2D healthBarTexture;
+
+
+        private Texture2D bulletTexture;
+        private List<Vector2> bullets = new List<Vector2>();
+        private float bulletSpeed = 600f;
+        private float shootTimer = 0f;
+        private float shootDelay = 0.2f;
+        private SoundEffect laserSound;
+        private SoundEffect hurtSound;
+
+
+        private Texture2D enemyTexture;
+        private Texture2D minionTexture;
+        private Texture2D quicksterTexture;
+        private List<ActiveEnemy> enemies = new List<ActiveEnemy>();
+        private float enemySpawnTimer = 0f;
+        private float enemySpawnDelay = 1.5f;
+        private Random random = new Random();
+
+
+        private int bossKillsNeeded = 30;
+        private int killCount = 0;
+        private EnemyTypeData bossType;
+        private bool bossActive = false;
+        private Vector2 bossPosition;
+        private int bossHealth;
+        private int bossMaxHealth = 150;
+        private int bossDirection = 1;
+        private float bossSpeed = 120f;
+        private int bossDamage = 10;
+        private float bossShootTimer = 0f;
+        private float bossShootDelay = 0.9f;
+        private float bossCurrentShootDelay = 0.9f;
+        private float phase2FireRateMultiplier = 1.5f;
+        private float bossContactTimer = 0f;
+        private float bossContactCooldown = 1f;
+        private Texture2D bossTexture;
+        private Texture2D boss2Texture;
+        private Texture2D bossCurrentTexture;
+
+
+        private int bossPhase = 1;
+        private int bossCurrentMaxHealth;
+        private float bossCurrentSpeed;
+        private int phase2HealthMultiplier = 2;
+        private float phase2SpeedMultiplier = 1.8f;
+        private float bossSpeedMultiplier = 4f;
+        private int damagePerHeart = 10;
+
+
+        private Texture2D enemyBulletTexture;
+        private List<Vector2> enemyBullets = new List<Vector2>();
+        private float enemyBulletSpeed = 300f;
+        private Rectangle enemyBulletSource;
+        private float bossBulletSpacing = 55f;
+
+
+        private List<WeaponData> dbWeapons = new List<WeaponData>();
+        private List<EnemyTypeData> dbEnemyTypes = new List<EnemyTypeData>();
+        private WeaponData currentWeapon;
+
+
+        private Texture2D itemLaserTexture;
+        private Texture2D itemRocketTexture;
+        private Texture2D itemMachineGunTexture;
+        private Texture2D itemDefaultTexture;
+        private List<ActiveItem> activeItems = new List<ActiveItem>();
+
+
+        private Texture2D heartItemTexture;
+        private List<Vector2> heartItems = new List<Vector2>();
+        private double heartDropChance = 0.15;
+        private int heartItemSize = 24;
+        private float heartFallSpeed = 120f;
+        private Rectangle heartSource;
+        private Point heartDrawSize;
+
+
+        private Texture2D boltTexture;
+        private List<Vector2> boltItems = new List<Vector2>();
+        private double boltDropChance = 0.10;
+        private int boltItemSize = 24;
+        private float boltFallSpeed = 120f;
+        private Rectangle boltSource;
+        private Point boltDrawSize;
+        private float fastFireTimer = 0f;
+        private float fastFireDuration = 20f;
+        private float fastFireMultiplier = 2f;
+
+
+        private Texture2D shieldTexture;
+        private List<Vector2> shieldItems = new List<Vector2>();
+        private double shieldDropChance = 0.08;
+        private int shieldItemSize = 24;
+        private float shieldFallSpeed = 120f;
+        private Rectangle shieldSource;
+        private Point shieldDrawSize;
+        private float invincibleTimer = 0f;
+        private float invincibleDuration = 10f;
+
+
+        public Game1()
+        {
+            graphics = new GraphicsDeviceManager(this);
+            Content.RootDirectory = "Content";
+            IsMouseVisible = true;
+        }
+
+
+        protected override void Initialize()
+        {
+            graphics.PreferredBackBufferWidth = ScreenWidth;
+            graphics.PreferredBackBufferHeight = ScreenHeight;
+            graphics.ApplyChanges();
+
+
+            shipPosition = new Vector2(ScreenWidth / 2f, ScreenHeight - 100);
+            currentHealth = maxHealth;
+
+
+            LoadDataFromDatabase();
+
+
+            base.Initialize();
+        }
+
+
+        private void LoadDataFromDatabase()
+        {
+            string connectionString = "Server=127.0.0.1;Port=3306;Database=spacesurvivor;Uid=root;Pwd=;";
+
+
+            try
+            {
+                MySqlConnection connection = new MySqlConnection(connectionString);
+                connection.Open();
+
+
+                MySqlCommand weaponsCommand = new MySqlCommand("SELECT weapon_id, nombre, dano, cadencia, municion_max FROM weapons", connection);
+                MySqlDataReader weaponsReader = weaponsCommand.ExecuteReader();
+                while (weaponsReader.Read())
+                {
+                    WeaponData weapon = new WeaponData();
+                    weapon.WeaponId = weaponsReader.GetInt32("weapon_id");
+                    weapon.Nombre = weaponsReader.GetString("nombre");
+                    weapon.Dano = weaponsReader.GetInt32("dano");
+                    weapon.Cadencia = weaponsReader.GetFloat("cadencia");
+                    weapon.MunicionMax = weaponsReader.GetInt32("municion_max");
+                    dbWeapons.Add(weapon);
+                }
+                weaponsReader.Close();
+
+
+                currentWeapon = null;
+                foreach (WeaponData weapon in dbWeapons)
+                {
+                    if (weapon.Nombre.Equals("Laser", StringComparison.OrdinalIgnoreCase))
+                    {
+                        currentWeapon = weapon;
+                        break;
+                    }
+                }
+
+
+                if (currentWeapon == null && dbWeapons.Count > 0)
+                {
+                    currentWeapon = dbWeapons[0];
+                }
+
+
+                if (currentWeapon != null && currentWeapon.Cadencia > 0)
+                {
+                    shootDelay = 1f / currentWeapon.Cadencia;
+                }
+                else
+                {
+                    shootDelay = 0.2f;
+                }
+
+
+                MySqlCommand enemiesCommand = new MySqlCommand("SELECT enemy_type_id, nombre, vida_base, dano, velocidad FROM enemytypes WHERE nombre != 'Boss'", connection);
+                MySqlDataReader enemiesReader = enemiesCommand.ExecuteReader();
+                while (enemiesReader.Read())
+                {
+                    EnemyTypeData enemyType = new EnemyTypeData();
+                    enemyType.EnemyTypeId = enemiesReader.GetInt32("enemy_type_id");
+                    enemyType.Nombre = enemiesReader.GetString("nombre");
+                    enemyType.VidaBase = enemiesReader.GetInt32("vida_base");
+                    enemyType.Dano = enemiesReader.GetInt32("dano");
+                    enemyType.Velocidad = enemiesReader.GetFloat("velocidad");
+                    dbEnemyTypes.Add(enemyType);
+                }
+                enemiesReader.Close();
+
+
+                MySqlCommand bossCommand = new MySqlCommand("SELECT enemy_type_id, nombre, vida_base, dano, velocidad FROM enemytypes WHERE nombre = 'Boss' LIMIT 1", connection);
+                MySqlDataReader bossReader = bossCommand.ExecuteReader();
+                if (bossReader.Read())
+                {
+                    bossType = new EnemyTypeData();
+                    bossType.EnemyTypeId = bossReader.GetInt32("enemy_type_id");
+                    bossType.Nombre = bossReader.GetString("nombre");
+                    bossType.VidaBase = bossReader.GetInt32("vida_base");
+                    bossType.Dano = bossReader.GetInt32("dano");
+                    bossType.Velocidad = bossReader.GetFloat("velocidad");
+
+
+                    bossMaxHealth = Math.Max(1, bossType.VidaBase);
+                    bossSpeed = Math.Max(1f, bossType.Velocidad * bossSpeedMultiplier);
+                    bossDamage = Math.Max(0, bossType.Dano);
+                }
+                bossReader.Close();
+
+
+                connection.Close();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("Error al conectar con la base de datos: " + ex.Message);
+            }
+        }
+
+
+        private Rectangle GetVisibleBounds(Texture2D texture)
+        {
+            Color[] data = new Color[texture.Width * texture.Height];
+            texture.GetData(data);
+
+
+            int minX = texture.Width;
+            int minY = texture.Height;
+            int maxX = -1;
+            int maxY = -1;
+
+
+            for (int y = 0; y < texture.Height; y++)
+            {
+                for (int x = 0; x < texture.Width; x++)
+                {
+                    if (data[y * texture.Width + x].A > 10)
+                    {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+            }
+
+
+            if (maxX < 0)
+            {
+                return new Rectangle(0, 0, texture.Width, texture.Height);
+            }
+
+
+            return new Rectangle(minX, minY, maxX - minX + 1, maxY - minY + 1);
+        }
+
+
+        private Texture2D CreateColorTexture(int width, int height, Color color)
+        {
+            Texture2D texture = new Texture2D(GraphicsDevice, width, height);
+            Color[] colorData = new Color[width * height];
+            for (int i = 0; i < colorData.Length; i++)
+            {
+                colorData[i] = color;
+            }
+            texture.SetData(colorData);
+            return texture;
+        }
+
+
+        private int HeartsFromDamage(int dano)
+        {
+            return Math.Max(1, (int)Math.Ceiling(dano / (float)damagePerHeart));
+        }
+
+
+        private Texture2D GetEnemyTexture(EnemyTypeData type)
+        {
+            if (type.Nombre.Equals("Minion", StringComparison.OrdinalIgnoreCase))
+            {
+                return minionTexture;
+            }
+
+
+            if (type.Nombre.Equals("Quickster", StringComparison.OrdinalIgnoreCase))
+            {
+                return quicksterTexture;
+            }
+
+
+            return enemyTexture;
+        }
+
+
+        private Color GetEnemyColor(EnemyTypeData type)
+        {
+            if (type.Nombre.Equals("Minion", StringComparison.OrdinalIgnoreCase) ||
+                type.Nombre.Equals("Quickster", StringComparison.OrdinalIgnoreCase))
+            {
+                return Color.White;
+            }
+
+
+            return Color.Red;
+        }
+
+
+        private Texture2D GetItemTexture(WeaponData weapon)
+        {
+            if (weapon.Nombre.Equals("Laser", StringComparison.OrdinalIgnoreCase))
+            {
+                return itemLaserTexture;
+            }
+
+
+            if (weapon.Nombre.Equals("Cohete", StringComparison.OrdinalIgnoreCase))
+            {
+                return itemRocketTexture;
+            }
+
+
+            if (weapon.Nombre.Equals("Metralleta", StringComparison.OrdinalIgnoreCase))
+            {
+                return itemMachineGunTexture;
+            }
+
+
+            return itemDefaultTexture;
+        }
+
+
+        protected override void LoadContent()
+        {
+            spriteBatch = new SpriteBatch(GraphicsDevice);
+
+
+            titleTexture = Content.Load<Texture2D>("title_screen");
+            gameOverTexture = Content.Load<Texture2D>("gameover_screen");
+            shipTexture = Content.Load<Texture2D>("ship");
+            backgroundTexture = Content.Load<Texture2D>("background");
+            minionTexture = Content.Load<Texture2D>("minion");
+            quicksterTexture = Content.Load<Texture2D>("quickster");
+            bossTexture = Content.Load<Texture2D>("boss");
+            boss2Texture = Content.Load<Texture2D>("boss2");
+            laserSound = Content.Load<SoundEffect>("laser");
+            hurtSound = Content.Load<SoundEffect>("hurt");
+
+
+            float scaledShipWidth = shipTexture.Width * shipScale;
+            shipPosition.X = (ScreenWidth / 2f) - (scaledShipWidth / 2f);
+
+
+            bulletTexture = CreateColorTexture(4, 12, Color.Yellow);
+            healthBarTexture = CreateColorTexture(20, 20, Color.LimeGreen);
+            enemyTexture = CreateColorTexture(32, 32, Color.White);
+
+
+            itemLaserTexture = CreateColorTexture(16, 16, Color.Yellow);
+            itemRocketTexture = CreateColorTexture(16, 16, Color.Green);
+            itemMachineGunTexture = CreateColorTexture(16, 16, Color.SkyBlue);
+            itemDefaultTexture = CreateColorTexture(16, 16, Color.Purple);
+
+
+            heartItemTexture = Content.Load<Texture2D>("vida");
+            heartSource = GetVisibleBounds(heartItemTexture);
+            float heartScale = heartItemSize / (float)heartItemTexture.Width;
+            heartDrawSize = new Point(
+                Math.Max(1, (int)Math.Round(heartSource.Width * heartScale)),
+                Math.Max(1, (int)Math.Round(heartSource.Height * heartScale)));
+
+
+            boltTexture = Content.Load<Texture2D>("rayo");
+            boltSource = GetVisibleBounds(boltTexture);
+            float boltScale = boltItemSize / (float)boltTexture.Width;
+            boltDrawSize = new Point(
+                Math.Max(1, (int)Math.Round(boltSource.Width * boltScale)),
+                Math.Max(1, (int)Math.Round(boltSource.Height * boltScale)));
+
+
+            shieldTexture = Content.Load<Texture2D>("escudo");
+            shieldSource = GetVisibleBounds(shieldTexture);
+            float shieldScale = shieldItemSize / (float)shieldTexture.Width;
+            shieldDrawSize = new Point(
+                Math.Max(1, (int)Math.Round(shieldSource.Width * shieldScale)),
+                Math.Max(1, (int)Math.Round(shieldSource.Height * shieldScale)));
+
+
+            enemyBulletTexture = Content.Load<Texture2D>("boss_bullet");
+            enemyBulletSource = GetVisibleBounds(enemyBulletTexture);
+        }
+
+
+        protected override void Update(GameTime gameTime)
+        {
+            if (Keyboard.GetState().IsKeyDown(Keys.Escape))
+            {
+                Exit();
+            }
+
+
+            KeyboardState kState = Keyboard.GetState();
+            MouseState mState = Mouse.GetState();
+            float deltaTime = (float)gameTime.ElapsedGameTime.TotalSeconds;
+
+
+            bgPositionY1 += bgSpeed * deltaTime;
+            bgPositionY2 += bgSpeed * deltaTime;
+
+
+            if (bgPositionY1 >= ScreenHeight)
+            {
+                bgPositionY1 = bgPositionY2 - ScreenHeight;
+            }
+
+
+            if (bgPositionY2 >= ScreenHeight)
+            {
+                bgPositionY2 = bgPositionY1 - ScreenHeight;
+            }
+
+
+            bool f4Pressed = kState.IsKeyDown(Keys.F4) && previousKeyboardState.IsKeyUp(Keys.F4);
+            if (f4Pressed && !bossActive &&
+                (currentState == GameState.TitleScreen || currentState == GameState.Playing))
+            {
+                if (currentState == GameState.TitleScreen)
+                {
+                    ResetGame();
+                }
+
+
+                enemies.Clear();
+                killCount = bossKillsNeeded;
+            }
+
+
+            switch (currentState)
+            {
+                case GameState.TitleScreen:
+                    Point mousePoint = new Point(mState.X, mState.Y);
+                    bool mouseClicked = mState.LeftButton == ButtonState.Pressed && previousMouseState.LeftButton == ButtonState.Released;
+
+
+                    if (playButtonRect.Contains(mousePoint) && mouseClicked)
+                    {
+                        ResetGame();
+                    }
+
+
+                    if (exitButtonRect.Contains(mousePoint) && mouseClicked)
+                    {
+                        Exit();
+                    }
+
+
+                    bool enterPressed = kState.IsKeyDown(Keys.Enter) && previousKeyboardState.IsKeyUp(Keys.Enter);
+                    bool spacePressed = kState.IsKeyDown(Keys.Space) && previousKeyboardState.IsKeyUp(Keys.Space);
+
+
+                    if (enterPressed || spacePressed)
+                    {
+                        ResetGame();
+                    }
+                    break;
+
+
+                case GameState.GameOver:
+                    bool goEnterPressed = kState.IsKeyDown(Keys.Enter) && previousKeyboardState.IsKeyUp(Keys.Enter);
+                    bool goSpacePressed = kState.IsKeyDown(Keys.Space) && previousKeyboardState.IsKeyUp(Keys.Space);
+                    bool goTPressed = kState.IsKeyDown(Keys.T) && previousKeyboardState.IsKeyUp(Keys.T);
+
+
+                    if (goEnterPressed || goSpacePressed || goTPressed)
+                    {
+                        currentState = GameState.TitleScreen;
+                    }
+                    break;
+
+
+                case GameState.Playing:
+                    float currentSpeed = shipSpeed;
+                    if (kState.IsKeyDown(Keys.LeftShift) || kState.IsKeyDown(Keys.RightShift))
+                    {
+                        currentSpeed *= shipBoostMultiplier;
+                    }
+
+
+                    if (kState.IsKeyDown(Keys.Left) || kState.IsKeyDown(Keys.A))
+                    {
+                        shipPosition.X -= currentSpeed * deltaTime;
+                    }
+                    if (kState.IsKeyDown(Keys.Right) || kState.IsKeyDown(Keys.D))
+                    {
+                        shipPosition.X += currentSpeed * deltaTime;
+                    }
+
+
+                    float scaledShipWidth = shipTexture.Width * shipScale;
+                    float scaledShipHeight = shipTexture.Height * shipScale;
+                    shipPosition.X = MathHelper.Clamp(shipPosition.X, 0, ScreenWidth - scaledShipWidth);
+
+
+                    if (fastFireTimer > 0f)
+                    {
+                        fastFireTimer -= deltaTime;
+                    }
+
+
+                    if (invincibleTimer > 0f)
+                    {
+                        invincibleTimer -= deltaTime;
+                    }
+
+
+                    float currentShootDelay = shootDelay;
+                    if (fastFireTimer > 0f)
+                    {
+                        currentShootDelay = shootDelay / fastFireMultiplier;
+                    }
+
+
+                    shootTimer += deltaTime;
+                    if (kState.IsKeyDown(Keys.Space) && shootTimer >= currentShootDelay)
+                    {
+                        float bulletX = shipPosition.X + (scaledShipWidth / 2f) - (bulletTexture.Width / 2f);
+                        float bulletY = shipPosition.Y;
+
+
+                        bullets.Add(new Vector2(bulletX, bulletY));
+                        laserSound.Play();
+                        shootTimer = 0f;
+                    }
+
+
+                    for (int i = bullets.Count - 1; i >= 0; i--)
+                    {
+                        Vector2 bulletPos = bullets[i];
+                        bulletPos.Y -= bulletSpeed * deltaTime;
+                        bullets[i] = bulletPos;
+
+
+                        if (bullets[i].Y < -bulletTexture.Height)
+                        {
+                            bullets.RemoveAt(i);
+                        }
+                    }
+
+
+                    enemySpawnTimer += deltaTime;
+                    if (enemySpawnTimer >= enemySpawnDelay && dbEnemyTypes.Count > 0
+                        && !bossActive && killCount < bossKillsNeeded)
+                    {
+                        int margin = 50;
+                        EnemyTypeData randomEnemyType = dbEnemyTypes[random.Next(dbEnemyTypes.Count)];
+                        Texture2D spawnTexture = GetEnemyTexture(randomEnemyType);
+                        float randomX = random.Next(margin, ScreenWidth - spawnTexture.Width - margin);
+
+
+                        ActiveEnemy newEnemy = new ActiveEnemy();
+                        newEnemy.Position = new Vector2(randomX, -spawnTexture.Height);
+                        newEnemy.Type = randomEnemyType;
+                        newEnemy.CurrentHealth = randomEnemyType.VidaBase;
+                        enemies.Add(newEnemy);
+
+
+                        enemySpawnTimer = 0f;
+                    }
+
+
+                    Rectangle playerRect = new Rectangle((int)shipPosition.X, (int)shipPosition.Y, (int)scaledShipWidth, (int)scaledShipHeight);
+
+
+                    for (int i = enemies.Count - 1; i >= 0; i--)
+                    {
+                        ActiveEnemy enemy = enemies[i];
+
+
+                        Vector2 enemyPos = enemy.Position;
+                        enemyPos.Y += enemy.Type.Velocidad * deltaTime;
+                        enemy.Position = enemyPos;
+
+
+                        Texture2D enemyTex = GetEnemyTexture(enemy.Type);
+                        Rectangle enemyRect = new Rectangle((int)enemy.Position.X, (int)enemy.Position.Y, enemyTex.Width, enemyTex.Height);
+
+
+                        if (playerRect.Intersects(enemyRect))
+                        {
+                            enemies.RemoveAt(i);
+
+
+                            if (invincibleTimer <= 0f)
+                            {
+                                currentHealth--;
+                                hurtSound.Play();
+
+
+                                if (currentHealth <= 0)
+                                {
+                                    currentState = GameState.GameOver;
+                                }
+                            }
+                            continue;
+                        }
+
+
+                        if (enemy.Position.Y > ScreenHeight)
+                        {
+                            enemies.RemoveAt(i);
+                        }
+                    }
+
+
+                    if (!bossActive && killCount >= bossKillsNeeded)
+                    {
+                        bossActive = true;
+                        bossPhase = 1;
+                        bossCurrentTexture = bossTexture;
+                        bossCurrentMaxHealth = bossMaxHealth;
+                        bossCurrentSpeed = bossSpeed;
+                        bossCurrentShootDelay = bossShootDelay;
+                        bossHealth = bossCurrentMaxHealth;
+                        bossPosition = new Vector2((ScreenWidth - bossCurrentTexture.Width) / 2f, 30f);
+                        bossDirection = 1;
+                        bossShootTimer = 0f;
+                        bossContactTimer = 0f;
+                    }
+
+
+                    if (bossActive)
+                    {
+                        bossPosition.X += bossCurrentSpeed * bossDirection * deltaTime;
+
+
+                        if (bossPosition.X <= 0)
+                        {
+                            bossPosition.X = 0;
+                            bossDirection = 1;
+                        }
+                        else if (bossPosition.X >= ScreenWidth - bossCurrentTexture.Width)
+                        {
+                            bossPosition.X = ScreenWidth - bossCurrentTexture.Width;
+                            bossDirection = -1;
+                        }
+
+
+                        bossShootTimer += deltaTime;
+                        if (bossShootTimer >= bossCurrentShootDelay)
+                        {
+                            bossShootTimer = 0f;
+                            float bossBulletY = bossPosition.Y + bossCurrentTexture.Height;
+                            float bossCenterX = bossPosition.X + (bossCurrentTexture.Width / 2f) - (enemyBulletSource.Width / 2f);
+
+
+                            enemyBullets.Add(new Vector2(bossCenterX - bossBulletSpacing, bossBulletY));
+                            enemyBullets.Add(new Vector2(bossCenterX, bossBulletY));
+                            enemyBullets.Add(new Vector2(bossCenterX + bossBulletSpacing, bossBulletY));
+                        }
+
+
+                        bossContactTimer -= deltaTime;
+                        Rectangle bossBodyRect = new Rectangle((int)bossPosition.X, (int)bossPosition.Y, bossCurrentTexture.Width, bossCurrentTexture.Height);
+                        if (bossContactTimer <= 0f && invincibleTimer <= 0f && playerRect.Intersects(bossBodyRect))
+                        {
+                            currentHealth -= HeartsFromDamage(bossDamage);
+                            bossContactTimer = bossContactCooldown;
+                            hurtSound.Play();
+
+
+                            if (currentHealth <= 0)
+                            {
+                                currentState = GameState.GameOver;
+                            }
+                        }
+                    }
+
+
+                    for (int i = enemyBullets.Count - 1; i >= 0; i--)
+                    {
+                        Vector2 ebPos = enemyBullets[i];
+                        ebPos.Y += enemyBulletSpeed * deltaTime;
+                        enemyBullets[i] = ebPos;
+
+
+                        Rectangle ebRect = new Rectangle((int)ebPos.X, (int)ebPos.Y, enemyBulletSource.Width, enemyBulletSource.Height);
+
+
+                        if (playerRect.Intersects(ebRect))
+                        {
+                            enemyBullets.RemoveAt(i);
+
+
+                            if (invincibleTimer <= 0f)
+                            {
+                                currentHealth -= HeartsFromDamage(bossDamage);
+                                hurtSound.Play();
+
+
+                                if (currentHealth <= 0)
+                                {
+                                    currentState = GameState.GameOver;
+                                }
+                            }
+                        }
+                        else if (ebPos.Y > ScreenHeight)
+                        {
+                            enemyBullets.RemoveAt(i);
+                        }
+                    }
+
+
+                    for (int i = activeItems.Count - 1; i >= 0; i--)
+                    {
+                        ActiveItem item = activeItems[i];
+                        Vector2 itemPos = item.Position;
+                        itemPos.Y += 120f * deltaTime;
+                        item.Position = itemPos;
+
+
+                        Texture2D itemTex = GetItemTexture(item.Weapon);
+                        Rectangle itemRect = new Rectangle((int)item.Position.X, (int)item.Position.Y, itemTex.Width, itemTex.Height);
+
+
+                        if (playerRect.Intersects(itemRect))
+                        {
+                            currentWeapon = item.Weapon;
+                            if (currentWeapon != null && currentWeapon.Cadencia > 0)
+                            {
+                                shootDelay = 1f / currentWeapon.Cadencia;
+                            }
+
+
+                            activeItems.RemoveAt(i);
+                        }
+                        else if (item.Position.Y > ScreenHeight)
+                        {
+                            activeItems.RemoveAt(i);
+                        }
+                    }
+
+
+                    for (int i = heartItems.Count - 1; i >= 0; i--)
+                    {
+                        Vector2 heartPos = heartItems[i];
+                        heartPos.Y += heartFallSpeed * deltaTime;
+                        heartItems[i] = heartPos;
+
+
+                        Rectangle heartRect = new Rectangle((int)heartPos.X, (int)heartPos.Y, heartDrawSize.X, heartDrawSize.Y);
+
+
+                        if (currentHealth < maxHealth && playerRect.Intersects(heartRect))
+                        {
+                            currentHealth++;
+                            heartItems.RemoveAt(i);
+                        }
+                        else if (heartPos.Y > ScreenHeight)
+                        {
+                            heartItems.RemoveAt(i);
+                        }
+                    }
+
+
+                    for (int i = boltItems.Count - 1; i >= 0; i--)
+                    {
+                        Vector2 boltPos = boltItems[i];
+                        boltPos.Y += boltFallSpeed * deltaTime;
+                        boltItems[i] = boltPos;
+
+
+                        Rectangle boltRect = new Rectangle((int)boltPos.X, (int)boltPos.Y, boltDrawSize.X, boltDrawSize.Y);
+
+
+                        if (playerRect.Intersects(boltRect))
+                        {
+                            fastFireTimer = fastFireDuration;
+                            boltItems.RemoveAt(i);
+                        }
+                        else if (boltPos.Y > ScreenHeight)
+                        {
+                            boltItems.RemoveAt(i);
+                        }
+                    }
+
+
+                    for (int i = shieldItems.Count - 1; i >= 0; i--)
+                    {
+                        Vector2 shieldPos = shieldItems[i];
+                        shieldPos.Y += shieldFallSpeed * deltaTime;
+                        shieldItems[i] = shieldPos;
+
+
+                        Rectangle shieldRect = new Rectangle((int)shieldPos.X, (int)shieldPos.Y, shieldDrawSize.X, shieldDrawSize.Y);
+
+
+                        if (playerRect.Intersects(shieldRect))
+                        {
+                            invincibleTimer = invincibleDuration;
+                            shieldItems.RemoveAt(i);
+                        }
+                        else if (shieldPos.Y > ScreenHeight)
+                        {
+                            shieldItems.RemoveAt(i);
+                        }
+                    }
+
+
+                    for (int b = bullets.Count - 1; b >= 0; b--)
+                    {
+                        Rectangle bulletRect = new Rectangle((int)bullets[b].X, (int)bullets[b].Y, bulletTexture.Width, bulletTexture.Height);
+                        bool bulletRemoved = false;
+
+
+                        for (int e = enemies.Count - 1; e >= 0; e--)
+                        {
+                            Texture2D hitTex = GetEnemyTexture(enemies[e].Type);
+                            Rectangle enemyRect = new Rectangle((int)enemies[e].Position.X, (int)enemies[e].Position.Y, hitTex.Width, hitTex.Height);
+
+
+                            if (bulletRect.Intersects(enemyRect))
+                            {
+                                int weaponDamage = 5;
+                                if (currentWeapon != null)
+                                {
+                                    weaponDamage = currentWeapon.Dano;
+                                }
+                                enemies[e].CurrentHealth -= weaponDamage;
+
+
+                                if (enemies[e].CurrentHealth <= 0)
+                                {
+                                    if (dbWeapons.Count > 0 && random.NextDouble() < 0.3)
+                                    {
+                                        ActiveItem newItem = new ActiveItem();
+                                        newItem.Position = enemies[e].Position;
+                                        newItem.Weapon = dbWeapons[random.Next(dbWeapons.Count)];
+                                        activeItems.Add(newItem);
+                                    }
+                                    else if (random.NextDouble() < heartDropChance)
+                                    {
+                                        heartItems.Add(enemies[e].Position);
+                                    }
+                                    else if (random.NextDouble() < boltDropChance)
+                                    {
+                                        boltItems.Add(enemies[e].Position);
+                                    }
+                                    else if (random.NextDouble() < shieldDropChance)
+                                    {
+                                        shieldItems.Add(enemies[e].Position);
+                                    }
+
+
+                                    enemies.RemoveAt(e);
+                                    killCount++;
+                                }
+
+
+                                bulletRemoved = true;
+                                break;
+                            }
+                        }
+
+
+                        if (!bulletRemoved && bossActive)
+                        {
+                            Rectangle bossRect = new Rectangle((int)bossPosition.X, (int)bossPosition.Y, bossCurrentTexture.Width, bossCurrentTexture.Height);
+
+
+                            if (bulletRect.Intersects(bossRect))
+                            {
+                                int bossDamageTaken = 5;
+                                if (currentWeapon != null)
+                                {
+                                    bossDamageTaken = currentWeapon.Dano;
+                                }
+                                bossHealth -= bossDamageTaken;
+                                bulletRemoved = true;
+
+
+                                if (bossHealth <= 0)
+                                {
+                                    if (bossPhase == 1)
+                                    {
+                                        bossPhase = 2;
+                                        bossCurrentTexture = boss2Texture;
+                                        bossCurrentMaxHealth = bossMaxHealth * phase2HealthMultiplier;
+                                        bossHealth = bossCurrentMaxHealth;
+                                        bossCurrentSpeed = bossSpeed * phase2SpeedMultiplier;
+                                        bossCurrentShootDelay = bossShootDelay / phase2FireRateMultiplier;
+                                        bossShootTimer = 0f;
+                                        bossContactTimer = bossContactCooldown;
+                                        enemyBullets.Clear();
+
+
+                                        bossPosition.X = MathHelper.Clamp(bossPosition.X, 0, ScreenWidth - bossCurrentTexture.Width);
+                                    }
+                                    else
+                                    {
+                                        bossActive = false;
+                                        bossPhase = 1;
+                                        bossContactTimer = 0f;
+                                        bossShootTimer = 0f;
+                                        enemyBullets.Clear();
+                                        enemies.Clear();
+                                        killCount = 0;
+                                        enemySpawnTimer = 0f;
+                                    }
+                                }
+                            }
+                        }
+
+
+                        if (bulletRemoved)
+                        {
+                            bullets.RemoveAt(b);
+                        }
+                    }
+                    break;
+            }
+
+
+            previousMouseState = mState;
+            previousKeyboardState = kState;
+
+
+            base.Update(gameTime);
+        }
+
+
+        private void ResetGame()
+        {
+            currentState = GameState.Playing;
+            currentHealth = maxHealth;
+            bullets.Clear();
+            enemies.Clear();
+            activeItems.Clear();
+            heartItems.Clear();
+            boltItems.Clear();
+            shieldItems.Clear();
+            fastFireTimer = 0f;
+            invincibleTimer = 0f;
+            enemyBullets.Clear();
+            killCount = 0;
+            bossActive = false;
+            bossPhase = 1;
+            bossContactTimer = 0f;
+            enemySpawnTimer = 0f;
+
+
+            float scaledShipWidth = shipTexture.Width * shipScale;
+            shipPosition.X = (ScreenWidth / 2f) - (scaledShipWidth / 2f);
+        }
+
+
+        protected override void Draw(GameTime gameTime)
+        {
+            GraphicsDevice.Clear(Color.Black);
+
+
+            spriteBatch.Begin(samplerState: SamplerState.PointClamp);
+
+
+            spriteBatch.Draw(backgroundTexture, new Rectangle(0, (int)bgPositionY1, ScreenWidth, ScreenHeight), Color.White);
+            spriteBatch.Draw(backgroundTexture, new Rectangle(0, (int)bgPositionY2, ScreenWidth, ScreenHeight), Color.White);
+
+
+            if (currentState == GameState.TitleScreen)
+            {
+                spriteBatch.Draw(titleTexture, new Rectangle(0, 0, ScreenWidth, ScreenHeight), Color.White);
+            }
+            else if (currentState == GameState.GameOver)
+            {
+                spriteBatch.Draw(gameOverTexture, new Rectangle(0, 0, ScreenWidth, ScreenHeight), Color.White);
+            }
+            else if (currentState == GameState.Playing)
+            {
+                float scaledShipWidth = shipTexture.Width * shipScale;
+                float scaledShipHeight = shipTexture.Height * shipScale;
+                Rectangle shipRect = new Rectangle((int)shipPosition.X, (int)shipPosition.Y, (int)scaledShipWidth, (int)scaledShipHeight);
+                Color shipColor = Color.White;
+                if (invincibleTimer > 0f)
+                {
+                    shipColor = Color.DodgerBlue;
+                }
+                spriteBatch.Draw(shipTexture, shipRect, shipColor);
+
+
+                foreach (Vector2 bullet in bullets)
+                {
+                    spriteBatch.Draw(bulletTexture, bullet, Color.White);
+                }
+
+
+                foreach (ActiveItem item in activeItems)
+                {
+                    spriteBatch.Draw(GetItemTexture(item.Weapon), item.Position, Color.White);
+                }
+
+
+                foreach (Vector2 heart in heartItems)
+                {
+                    Rectangle heartRect = new Rectangle((int)heart.X, (int)heart.Y, heartDrawSize.X, heartDrawSize.Y);
+                    spriteBatch.Draw(heartItemTexture, heartRect, heartSource, Color.White);
+                }
+
+
+                foreach (Vector2 bolt in boltItems)
+                {
+                    Rectangle boltRect = new Rectangle((int)bolt.X, (int)bolt.Y, boltDrawSize.X, boltDrawSize.Y);
+                    spriteBatch.Draw(boltTexture, boltRect, boltSource, Color.White);
+                }
+
+
+                foreach (Vector2 shield in shieldItems)
+                {
+                    Rectangle shieldRect = new Rectangle((int)shield.X, (int)shield.Y, shieldDrawSize.X, shieldDrawSize.Y);
+                    spriteBatch.Draw(shieldTexture, shieldRect, shieldSource, Color.White);
+                }
+
+
+                foreach (ActiveEnemy enemy in enemies)
+                {
+                    spriteBatch.Draw(
+                        GetEnemyTexture(enemy.Type),
+                        enemy.Position,
+                        null,
+                        GetEnemyColor(enemy.Type),
+                        0f,
+                        Vector2.Zero,
+                        1f,
+                        SpriteEffects.FlipVertically,
+                        0f);
+                }
+
+
+                if (bossActive)
+                {
+                    spriteBatch.Draw(
+                        bossCurrentTexture,
+                        bossPosition,
+                        null,
+                        Color.White,
+                        0f,
+                        Vector2.Zero,
+                        1f,
+                        SpriteEffects.FlipVertically,
+                        0f);
+
+
+                    int barWidth = 400;
+                    int barX = (ScreenWidth - barWidth) / 2;
+                    float healthPercent = MathHelper.Clamp((float)bossHealth / bossCurrentMaxHealth, 0f, 1f);
+
+
+                    spriteBatch.Draw(enemyTexture, new Rectangle(barX, 10, barWidth, 12), Color.DarkGray);
+                    spriteBatch.Draw(enemyTexture, new Rectangle(barX, 10, (int)(barWidth * healthPercent), 12), Color.Red);
+                }
+
+
+                foreach (Vector2 enemyBullet in enemyBullets)
+                {
+                    spriteBatch.Draw(enemyBulletTexture, enemyBullet, enemyBulletSource, Color.White);
+                }
+
+
+                for (int i = 0; i < currentHealth; i++)
+                {
+                    Vector2 healthPos = new Vector2(20 + (i * 30), 20);
+                    spriteBatch.Draw(healthBarTexture, healthPos, Color.White);
+                }
+            }
+
+
+            spriteBatch.End();
+
+
+            base.Draw(gameTime);
+        }
+    }
+}
